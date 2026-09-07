@@ -1,11 +1,10 @@
 import type { GoogleFont } from '@/lib/types';
+import { CURATED_FONTS } from '@/lib/curated-fonts';
 
 const fontsLoaded = new Set<string>();
 
-const FALLBACK_FONTS: GoogleFont[] = [
-  { family: 'Inter', variants: ['400','700'], category: 'sans-serif' },
-  { family: 'Roboto', variants: ['400','700'], category: 'sans-serif' },
-];
+// Was two families. See curated-fonts.ts for why that mattered.
+const FALLBACK_FONTS: GoogleFont[] = CURATED_FONTS;
 
 export async function loadGoogleFonts(): Promise<GoogleFont[]> {
   const key = process.env.NEXT_PUBLIC_GOOGLE_FONTS_API_KEY;

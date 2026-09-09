@@ -85,3 +85,7 @@ clears the redo branch. They use a generated geometric PNG fixture, not a paid m
 or a remote image. `--capture` refreshes the README screenshot. Framework dependencies
 are locked to a patched Next.js 15 maintenance release; container startup remains
 unverified on this machine.
+
+## Author
+
+[**Muhammad Nadeem**](https://github.com/dev-mnadeem)

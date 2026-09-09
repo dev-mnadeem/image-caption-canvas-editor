@@ -39,8 +39,7 @@ export const addTextToCanvas = (canvas: fabric.Canvas, options: {
     fontWeight: options.fontWeight,
     fill: options.fill,
     opacity: options.opacity,
-    textAlign: options.textAlign,
-    hasRotatingPoint: true,
+    textAlign: options.textAlign === 'right' ? 'right' : options.textAlign === 'center' ? 'center' : 'left',
     cornerStyle: 'circle',
     cornerColor: '#3b82f6',
     cornerStrokeColor: '#ffffff',
@@ -73,10 +72,11 @@ export const updateTextObject = (textObject: fabric.Text, updates: Partial<{
   textObject.canvas?.renderAll();
 };
 
-export const exportCanvasToPNG = (canvas: fabric.Canvas): string => {
+export const exportCanvasToPNG = (canvas: fabric.Canvas, multiplier = 1): string => {
   return canvas.toDataURL({
     format: 'png',
     quality: 1,
-    multiplier: 1, // This ensures original dimensions are preserved
+    multiplier,
+    enableRetinaScaling: false,
   });
 };

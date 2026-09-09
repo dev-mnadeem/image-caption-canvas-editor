@@ -2,7 +2,6 @@
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { useEditor } from '@/hooks/use-editor';
 import {
 	Type,
 	Upload,
@@ -39,7 +38,7 @@ export const Toolbar = ({
 	canRedo,
 	hasSelection,
 }: ToolbarProps) => {
-	const { editorState } = useEditor();
+
 	
 	const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
 		const file = e.target.files?.[0];
@@ -105,6 +104,7 @@ export const Toolbar = ({
 			{/* Edit Operations */}
 			<div className="flex items-center gap-3 border-r border-gray-600/20 pr-6">
 				<Button 
+					aria-label="Undo"
 					onClick={onUndo} 
 					disabled={!canUndo} 
 					variant="outline" 
@@ -115,6 +115,7 @@ export const Toolbar = ({
 				</Button>
 
 				<Button 
+					aria-label="Redo"
 					onClick={onRedo} 
 					disabled={!canRedo} 
 					variant="outline" 

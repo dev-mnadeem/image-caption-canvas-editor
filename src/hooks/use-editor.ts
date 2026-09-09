@@ -6,7 +6,6 @@ import { EditorState, TextLayer } from '@/lib/types';
 import { createCanvas, addTextToCanvas, exportCanvasToPNG } from '@/lib/fabric-utils';
 import { ensureFontLoaded } from '@/lib/google-font';
 
-const STORAGE_KEY = 'image-editor-state';
 const MAX_HISTORY = 20;
 
 export const useEditor = () => {
@@ -23,6 +22,14 @@ export const useEditor = () => {
 
   const [isLoading, setIsLoading] = useState(false);
   const styleSaveTimer = useRef<number | null>(null);
+  const restoring = useRef(false);
+  const modificationTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (styleSaveTimer.current) clearTimeout(styleSaveTimer.current);
+    if (modificationTimer.current) clearTimeout(modificationTimer.current);
+    void canvasRef.current?.dispose();
+    canvasRef.current = null;
+  }, []);
 
   const initCanvas = useCallback((canvasElement: HTMLCanvasElement) => {
     if (canvasRef.current) {
@@ -44,13 +51,13 @@ export const useEditor = () => {
       setEditorState(prev => ({ ...prev, selectedLayerId: null }));
     });
 
-    let modificationTimeout: NodeJS.Timeout;
+
     canvasRef.current.on('object:modified', () => {
-      if (modificationTimeout) {
-        clearTimeout(modificationTimeout);
+      if (modificationTimer.current) {
+        clearTimeout(modificationTimer.current);
       }
       
-      modificationTimeout = setTimeout(() => {
+      modificationTimer.current = setTimeout(() => {
         if (canvasRef.current) {
           const objects = canvasRef.current.getObjects();
           const textLayers = objects
@@ -93,78 +100,49 @@ export const useEditor = () => {
       }
     });
 
-    loadFromStorage();
+    saveToHistory();
   }, []);
 
   const saveToHistory = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || restoring.current) return;
+    const canvasJSON = canvas.toObject(['id']) as Record<string, unknown>;
+    const textLayers: TextLayer[] = canvas.getObjects()
+      .filter(object => object.type === 'text' || object.type === 'i-text')
+      .map(object => { const text = object as fabric.IText & { id: string };
+        return { id: text.id, text: text.text, visible: text.visible, locked: !text.selectable }; });
     setEditorState(prev => {
-      const newHistory = prev.history.slice(0, prev.historyIndex + 1);
-      
-              const lightState = {
-          ...prev,
-          backgroundImage: prev.backgroundImage ? 'has-image' : null,
-        };
-      
-      newHistory.push(lightState);
-      
-      if (newHistory.length > MAX_HISTORY) {
-        newHistory.shift();
-      }
-
-      const newState = {
-        ...prev,
-        history: newHistory,
-        historyIndex: newHistory.length - 1,
-      };
-
-              try {
-        const stateToSave = {
-          ...newState,
-          backgroundImage: newState.backgroundImage ? 'has-image' : null,
-          history: newState.history.map(h => ({
-            ...h,
-            backgroundImage: h.backgroundImage ? 'has-image' : null,
-          })),
-        };
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(stateToSave));
-      } catch (error) {
-        console.warn('Failed to save to localStorage:', error);
-        try {
-          localStorage.removeItem(STORAGE_KEY);
-        } catch (clearError) {
-          console.error('Failed to clear localStorage:', clearError);
-        }
-      }
-      
-      return newState;
+      const { history, historyIndex, ...state } = prev;
+      if (JSON.stringify(history[historyIndex]?.canvasJSON) === JSON.stringify(canvasJSON)) return prev;
+      const next = [...history.slice(0, historyIndex + 1), { ...state, textLayers, canvasJSON }].slice(-MAX_HISTORY);
+      return { ...prev, textLayers, history: next, historyIndex: next.length - 1 };
     });
   }, []);
 
   const loadImage = useCallback((file: File) => {
     if (!canvasRef.current) return;
 
-    console.log('Starting image load for:', file.name, file.type, file.size);
+    if (file.type !== 'image/png' || file.size > 20 * 1024 * 1024) {
+      alert('Choose a PNG no larger than 20 MB.'); return;
+    }
     setIsLoading(true);
     const reader = new FileReader();
 
     reader.onload = (e) => {
       const imgSrc = e.target?.result as string;
-      console.log('File read successfully, creating fabric image...');
       
       fabric.Image.fromURL(imgSrc)
         .then((img) => {
-          console.log('Fabric image created:', img.width, 'x', img.height);
           
           const canvas = canvasRef.current;
           if (!canvas) {
             throw new Error('Canvas not available');
           }
           
-          if (!img || !img.width || !img.height) {
+          if (!img || !img.width || !img.height || img.width * img.height > 16_000_000) {
             throw new Error('Invalid image dimensions');
           }
 
-          console.log('Clearing canvas and setting up image...');
 
           canvas.discardActiveObject();
           const objects = canvas.getObjects().slice();
@@ -210,19 +188,18 @@ export const useEditor = () => {
           // Set the image as background
           (canvas as any).backgroundImage = img;
           canvas.renderAll();
-          console.log('Background image set successfully');
 
           setEditorState(prev => ({
             ...prev,
             backgroundImage: imgSrc,
             canvasWidth: canvasWidth,
+            exportScale: img.width / canvasWidth,
             canvasHeight: canvasHeight,
             textLayers: [], // Clear text layers when new image is loaded
             selectedLayerId: null,
           }));
 
           saveToHistory();
-          console.log('Image loaded successfully!');
           setIsLoading(false);
         })
         .catch((err) => {
@@ -387,7 +364,6 @@ export const useEditor = () => {
   // Delete selected layer
   const deleteSelectedLayer = useCallback(() => {
     if (!canvasRef.current) return;
-    localStorage.removeItem('image-editor-state');
     const canvas = canvasRef.current;
     const activeObject = canvas.getActiveObject();
 
@@ -406,40 +382,31 @@ export const useEditor = () => {
     }
   }, [saveToHistory]);
 
-  // Undo/Redo
-  const undo = useCallback(() => {
-    setEditorState(prev => {
-      if (prev.historyIndex > 0) {
-        const previousState = prev.history[prev.historyIndex - 1];
-        return {
-          ...previousState,
-          history: prev.history,
-          historyIndex: prev.historyIndex - 1,
-        };
-      }
-      return prev;
-    });
-  }, []);
-
-  const redo = useCallback(() => {
-    setEditorState(prev => {
-      if (prev.historyIndex < prev.history.length - 1) {
-        const nextState = prev.history[prev.historyIndex + 1];
-        return {
-          ...nextState,
-          history: prev.history,
-          historyIndex: prev.historyIndex + 1,
-        };
-      }
-      return prev;
-    });
-  }, []);
+  const restoreHistory = useCallback(async (index: number) => {
+    const canvas = canvasRef.current;
+    const snapshot = editorState.history[index];
+    if (!canvas || !snapshot?.canvasJSON || restoring.current) return;
+    restoring.current = true;
+    setIsLoading(true);
+    try {
+      await canvas.loadFromJSON(snapshot.canvasJSON);
+      canvas.setDimensions({ width: snapshot.canvasWidth, height: snapshot.canvasHeight });
+      canvas.discardActiveObject();
+      canvas.requestRenderAll();
+      setEditorState(prev => ({ ...snapshot, selectedLayerId: null, history: prev.history, historyIndex: index }));
+    } finally {
+      restoring.current = false;
+      setIsLoading(false);
+    }
+  }, [editorState.history]);
+  const undo = useCallback(() => { if (editorState.historyIndex > 0) void restoreHistory(editorState.historyIndex - 1); }, [editorState.historyIndex, restoreHistory]);
+  const redo = useCallback(() => { if (editorState.historyIndex < editorState.history.length - 1) void restoreHistory(editorState.historyIndex + 1); }, [editorState.historyIndex, editorState.history.length, restoreHistory]);
 
   // Export canvas
   const exportToPNG = useCallback(() => {
     if (!canvasRef.current) return null;
-    return exportCanvasToPNG(canvasRef.current);
-  }, []);
+    return exportCanvasToPNG(canvasRef.current, editorState.exportScale || 1);
+  }, [editorState.exportScale]);
 
   // Layer management functions
   const selectLayer = useCallback((layerId: string) => {
@@ -460,25 +427,7 @@ export const useEditor = () => {
     const objects = canvas.getObjects();
     const targetObject = objects[fromIndex];
     if (targetObject) {
-      // Remove the object from its current position
-      canvas.remove(targetObject);
-      
-      // Get the remaining objects
-      const remainingObjects = canvas.getObjects();
-      
-      // Clear the canvas
-      canvas.clear();
-      
-      // Re-add objects in the correct order
-      for (let i = 0; i < remainingObjects.length + 1; i++) {
-        if (i === toIndex) {
-          canvas.add(targetObject);
-        }
-        if (i < remainingObjects.length) {
-          canvas.add(remainingObjects[i]);
-        }
-      }
-      
+      canvas.moveObjectTo(targetObject, toIndex);
       canvas.renderAll();
       saveToHistory();
     }
@@ -493,7 +442,6 @@ export const useEditor = () => {
       targetObject.visible = !targetObject.visible;
       canvas.renderAll();
       
-      localStorage.removeItem('image-editor-state')
       // Update the textLayers state to reflect visibility change
       setEditorState(prev => ({
         ...prev,
@@ -649,25 +597,8 @@ export const useEditor = () => {
     };
 
     setEditorState(initialState);
-    localStorage.removeItem(STORAGE_KEY);
-  }, []);
-
-  // Load from localStorage
-  const loadFromStorage = useCallback(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        const state = JSON.parse(saved);
-        // Ensure textLayers exists in loaded state
-        if (!state.textLayers) {
-          state.textLayers = [];
-        }
-        setEditorState(state);
-      }
-    } catch (error) {
-      console.error('Failed to load from storage:', error);
-    }
-  }, []);
+    saveToHistory();
+  }, [saveToHistory]);
 
   const setBackgroundEditable = useCallback((editable: boolean) => {
     if (!canvasRef.current) return;

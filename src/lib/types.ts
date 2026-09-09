@@ -11,7 +11,9 @@ export interface EditorState {
   selectedLayerId: string | null;
   canvasWidth: number;
   canvasHeight: number;
-  history: EditorState[];
+  canvasJSON?: Record<string, unknown>;
+  exportScale?: number;
+  history: EditorSnapshot[];
   historyIndex: number;
 }
 
@@ -20,3 +22,4 @@ export interface GoogleFont {
   variants: string[];
   category: string;
 }
+export type EditorSnapshot = Omit<EditorState, "history" | "historyIndex">;

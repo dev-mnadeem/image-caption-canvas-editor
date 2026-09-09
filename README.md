@@ -13,14 +13,14 @@ A browser-based editor for putting text on images. Upload a PNG, add text layers
 - Export to PNG at the original dimensions
 - A curated list of Google Fonts that works without an API key
 
-Built with Next.js 15, React 18, TypeScript, Fabric.js, Tailwind CSS and Radix UI components.
+Built with Next.js 15, React 18, TypeScript, Fabric.js 7, Tailwind CSS and Radix UI components.
 
 ## Running it
 
 For development:
 
 ```bash
-npm install
+npm ci
 npm run dev
 ```
 
@@ -49,4 +49,39 @@ By default the font picker uses the curated families in `src/lib/curated-fonts.t
 
 - Only PNG uploads are accepted.
 - Nothing is saved, a page reload clears the design.
-- There are no tests yet. The undo/redo history would be the first thing worth covering.
+- Images are limited to 20 MB and 16 million pixels to bound decoding and history memory.
+- History retains the newest 20 canvas snapshots in memory; designs are not persisted on reload.
+
+## Canvas state and export
+
+```mermaid
+flowchart LR
+  PNG[PNG upload] --> Decode[Decode and validate dimensions]
+  Decode --> Canvas[Fit preview canvas]
+  Canvas --> Snapshots[Bounded Fabric JSON snapshots]
+  Snapshots -->|Undo or redo| Restore[Restore objects and background]
+  Restore --> Canvas
+  Canvas --> Export[PNG export at source dimensions]
+```
+
+History stores the serialized canvas and layer metadata together. Undo/redo restore
+both, including the background, rather than changing only the sidebar. Reordering
+uses Fabric's stacking operation so it does not clear the background. Export uses
+the source-to-preview scale and disables retina multiplication; screen pixel density
+does not change the dimensions of the downloaded PNG.
+
+To repeat the browser regressions after `npm run build`:
+
+```bash
+python3 -m venv .test-venv
+.test-venv/bin/pip install playwright==1.56.0
+.test-venv/bin/python -m playwright install chromium
+.test-venv/bin/python tests/browser_checks.py
+```
+
+The checks run a local static server and verify source-resolution export on a retina
+viewport, compare exported pixels before/after undo and redo, and ensure a new edit
+clears the redo branch. They use a generated geometric PNG fixture, not a paid model
+or a remote image. `--capture` refreshes the README screenshot. Framework dependencies
+are locked to a patched Next.js 15 maintenance release; container startup remains
+unverified on this machine.

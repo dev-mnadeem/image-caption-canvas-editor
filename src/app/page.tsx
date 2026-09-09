@@ -63,7 +63,6 @@ export default function HomePage() {
 	}, [editorState.selectedLayerId, getSelectedObjectData]);
 
 	useEffect(() => {
-		localStorage.removeItem('image-editor-state');
 		const handleKeyDown = (e: KeyboardEvent) => {
 			const target = e.target as HTMLElement | null;
 			const isFormElement =
@@ -131,6 +130,7 @@ export default function HomePage() {
 						}
 						
 						canvas.renderAll();
+						canvas.fire("object:modified", { target: activeObject });
 					}
 				}
 			}
